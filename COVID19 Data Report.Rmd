@@ -1,0 +1,152 @@
+---
+title: "COVID19 Data Report"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+## Introduction
+
+### About this report
+
+The purpose of this report is to explore and analyze the COVID19 Data, especially the situation in China.
+
+### About the data
+
+The dataset is provided by the Center for Systems Science and Engineering (CSSE) at Johns Hopkins University. The data contains the daily global case report about COVID19 including number of confirmed, deaths and recovered.
+
+## Importing the Data
+
+```{r import data, results=FALSE, message=FALSE, warning=FALSE}
+global_cases <- read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv')
+global_deaths <- read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv')
+global_recovered <- read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv')
+```
+
+## Tidying the Data
+Transforming the data in the form of one row for one day.
+```{r tidy data (transform)}
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c('Province/State',
+                         'Country/Region', 'Lat', 'Long'),
+               names_to = 'date',
+               values_to = 'cases') %>%
+  select(-c('Lat', 'Long'))
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c('Province/State',
+                         'Country/Region', 'Lat', 'Long'),
+               names_to = 'date',
+               values_to = 'deaths') %>%
+  select(-c('Lat', 'Long'))
+global_recovered <- global_recovered %>%
+  pivot_longer(cols = -c('Province/State',
+                         'Country/Region', 'Lat', 'Long'),
+               names_to = 'date',
+               values_to = 'recovered') %>%
+  select(-c('Lat', 'Long'))
+```
+
+Joining the data and changing into date format
+```{r tidy data (join data)}
+global <- global_cases %>%
+  full_join(global_deaths)
+global <- global %>%
+  full_join(global_recovered) %>%
+  rename('Country_Region' = 'Country/Region',
+         'Province_State' = 'Province/State')
+global$date <- as.Date(global$date, format = "%m/%d/%y")
+```
+
+Filtering the zero case data
+```{r tidy data (filter zero)}
+global <- global %>% filter(cases > 0)
+global <- global %>% filter(deaths > 0)
+global <- global %>% filter(recovered > 0)
+```
+
+
+Changing appropriate variables to factor
+```{r tidy data (Factor)}
+global$Province_State <- as.factor(global$Province_State)
+global$Country_Region <- as.factor(global$Country_Region)
+```
+
+
+## First Insight and Visualization
+Using the summary function to get the first insight of the data and plot the trend
+```{r grouping china total data, message=FALSE, warning=FALSE}
+china <- global %>% filter(Country_Region == 'China')
+china_total <- china %>%
+                    group_by(Country_Region, date) %>%
+                    summarize(cases = sum(cases), deaths = sum(deaths),
+                              recovered = sum(recovered)) %>%
+                    ungroup()
+summary(china_total)
+china_total %>% ggplot() + 
+  geom_line(aes(x = date, y = cases, colour = "case"), size = 1) +
+  geom_line(aes(x = date, y = deaths, colour = "death"), size = 1) +
+  geom_line(aes(x = date, y = recovered, colour = "recover"), size = 1) +
+  labs(title = "COVID19 in China",
+       y = "Count", x = "Date") +
+  scale_color_manual(values = c("case" = "steelblue", "death" = "red4", "recover" = "green4"))
+```
+
+We can see that the cumulative number of case is around one hundred thousand, and currently the death rate is about 4.7%.
+
+```{r death rate, message=FALSE, warning=FALSE}
+china_total <- china_total %>% mutate(death_rate = deaths / cases)
+china_total %>% ggplot() + 
+  geom_line(aes(x = date, y = death_rate), size = 1, colour = "red4") +
+  labs(title = "COVID19 in China",
+       y = "Death Rate", x = "Date")
+```
+
+Then, we take a look at the death rate trend. It fluctuated a lot before May 2020, and it decreased gradually after that. It is quite strange that the death rate surged a lot in April 2020, we will try to explore the reason behind that in the following.
+
+
+```{r case trend, message=FALSE, warning=FALSE}
+china_total <- china_total %>% mutate(new_cases = cases - lag(cases),
+                                      new_deaths = deaths - lag(deaths),
+                                      new_recovered = recovered - lag(recovered))
+
+china_total %>% ggplot() + 
+  geom_line(aes(x = date, y = new_cases), size = 1, colour = "steelblue") +
+  labs(title = "COVID19 in China",
+       y = "Number of new case", x = "Date")
+```
+
+First, we transform the data again to explore the trend of new cases and deaths. From the plot above, we can see that the number of new cases has a peak on 2/13 of 2020 which is over 15,000. If we try to google the news, we can know that on that day, the Chinese government said that they adapted quick test and changed the standard of confirming cases, so the number of cases on that day is actually a lag of earlier cases.
+
+```{r death trend, message=FALSE, warning=FALSE}
+china_total %>% ggplot() + 
+  geom_line(aes(x = date, y = new_deaths), size = 1, colour = "red4") +
+  labs(title = "COVID19 in China",
+       y = "Number of new death", x = "Date")
+```
+
+On the other hand, we take a look at the number of new death. From the plot above, we can also see a peak on 4/17 of 2020 which is 1290. From the new on the internet, the Chinese government explained that they adjusted the number of death in Wuhan, and this explains why we saw that the death rate surged a lot in April 2020.
+
+## Multiple Linear Regression Model
+```{r model, message=FALSE, warning=FALSE}
+model <- glm(death_rate ~ cases + deaths, data = china_total)
+summary(model)
+china_total <- china_total %>% mutate(pred = predict(model))
+china_total %>% ggplot() + 
+  geom_line(aes(x = date, y = death_rate, colour = "Real"), size = 1) +
+  geom_line(aes(x = date, y = pred, colour = "Prediction"), size = 1) +
+  labs(title = "COVID19 in China",
+       y = "Death Rate", x = "Date") +
+  scale_color_manual(name = "Death Rate", values = c("Real" = "steelblue", "Prediction" = "red"))
+```
+
+To perform a simple multiple regression model of death rate, we can take the number of case and death into the model. From the model summary above, we can see that both the number of case and death are significant. Now we have a simple model to predict the death rate of COVID19 in China.
+
+## Conclusion
+From the data above, it is obvious that the number of new case in China maintained a relatively high level at the beginning of 2020, and it increased a lot in Feb 2020. On the other hand, similar thing happened on the number of new death in April 2020. The reason behind that is the Chinese government changed their statistical methods.
+
+## Bias
+The data adjustment by the Chinese government may be a bias. If we just look at the number of new case and new death, we may be misled that some horrible thing happened on those surge days. Furthermore, since we take the number of case and death into the model, this may affect the accuracy of the model.

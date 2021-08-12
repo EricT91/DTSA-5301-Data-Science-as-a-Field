@@ -1,0 +1,154 @@
+---
+title: "NYPD Shooting Incident Data Report"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+## Introduction
+
+### About this report
+
+The purpose of this report is to explore and analyze the NYPD Shooting Incident Data.
+
+### About the data
+
+This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. This data can be used by the public to explore the nature of shooting/criminal activity.
+
+## Importing the Data
+
+```{r import data, results=FALSE, message=FALSE, warning=FALSE}
+nypd_dataset <- read_csv('https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD')
+
+```
+
+## Tidying the Data
+Select the relevant columns first
+```{r tidy data (Filter)}
+nypd_dataset_selected <- select(nypd_dataset, c('INCIDENT_KEY', 'OCCUR_DATE', 'BORO', 'STATISTICAL_MURDER_FLAG', 'PERP_AGE_GROUP', 'PERP_SEX', 'PERP_RACE', 'VIC_AGE_GROUP', 'VIC_SEX', 'VIC_RACE'))
+```
+
+Changing appropriate variables to factor
+```{r tidy data (Factor)}
+nypd_dataset_selected$BORO <- as.factor(nypd_dataset_selected$BORO)
+nypd_dataset_selected$STATISTICAL_MURDER_FLAG <- as.factor(nypd_dataset_selected$STATISTICAL_MURDER_FLAG)
+nypd_dataset_selected$PERP_AGE_GROUP <- as.factor(nypd_dataset_selected$PERP_AGE_GROUP)
+nypd_dataset_selected$PERP_SEX <- as.factor(nypd_dataset_selected$PERP_SEX)
+nypd_dataset_selected$PERP_RACE <- as.factor(nypd_dataset_selected$PERP_RACE)
+nypd_dataset_selected$VIC_AGE_GROUP <- as.factor(nypd_dataset_selected$VIC_AGE_GROUP)
+nypd_dataset_selected$VIC_SEX <- as.factor(nypd_dataset_selected$VIC_SEX)
+nypd_dataset_selected$VIC_RACE <- as.factor(nypd_dataset_selected$VIC_RACE)
+```
+
+Changing appropriate variables to date format
+```{r tidy data (Date)}
+nypd_dataset_selected$OCCUR_DATE <- as.Date(nypd_dataset_selected$OCCUR_DATE, format = "%m/%d/%Y")
+```
+
+Since the data is duplicated with multiple victims, we create a new data set with unique incident key to analyze the number of incident
+```{r tidy data (Drop Dulicated Data)}
+nypd_dataset_unique <- select(nypd_dataset_selected, c('INCIDENT_KEY', 'OCCUR_DATE', 'BORO', 'STATISTICAL_MURDER_FLAG', 'PERP_AGE_GROUP', 'PERP_SEX', 'PERP_RACE'))
+nypd_dataset_unique <- nypd_dataset_unique %>% distinct(INCIDENT_KEY, .keep_all = TRUE)
+```
+
+## First Insight
+Using the summary function to get the first insight of the data
+```{r summary of the victim data}
+summary(select(nypd_dataset_selected, c('VIC_AGE_GROUP', 'VIC_SEX', 'VIC_RACE')))
+```
+```{r summary of the data}
+summary(select(nypd_dataset_unique, c('BORO', 'STATISTICAL_MURDER_FLAG', 'PERP_AGE_GROUP', 'PERP_SEX', 'PERP_RACE')))
+```
+
+From the summary, we can see that the majority of the victims is black male, and most victims are aged from 18 to 44 years old. On the other hand, it is hard to make a conclusion about the characteristics of perpetrators, since about 40% of both the age and race data is missing.
+
+## Visualization
+
+```{r viz_count}
+df_viz_count <- nypd_dataset_unique %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month")) %>% summarize(count = n())
+ggplot(data = df_viz_count, aes(x = OCCUR_DATE_MONTH, y = count)) +
+  geom_line(color = "steelblue", size = 1) +
+  labs(title = "NYPD Shooting Incident",
+       y = "Count of Shooting Incident", x = "Date of the shooting incident (Month)")
+```
+
+At first, we take a look at the monthly number of incident, it is obvious that the monthly number of incident increased a lot during 2020.
+
+
+```{r viz_boro}
+df_viz_boro <- nypd_dataset_unique %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month"), BORO) %>% summarize(count = n(), .groups = 'drop')
+ggplot(data = df_viz_boro, aes(x = OCCUR_DATE_MONTH, y = count)) +
+  geom_line(color = "steelblue", size = 1) +
+  labs(title = "NYPD Shooting Incident (Borough)",
+       y = "Count of Shooting Incident", x = "Date of the shooting incident (Month)") + 
+  facet_wrap(~ BORO)
+```
+
+By grouping the number in borough, we can also see that the 2020 phenomenon exists in all the boroughs.
+
+```{r viz_age}
+df_viz_age <- nypd_dataset_selected %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month"), VIC_AGE_GROUP) %>% summarize(count = n(), .groups = 'drop')
+ggplot(data = df_viz_age, aes(x = OCCUR_DATE_MONTH, y = count)) +
+  geom_line(color = "steelblue", size = 0.8) +
+  labs(title = "NYPD Shooting Incident (Victim's Age)",
+       y = "Count of Shooting Incident", x = "Date of the shooting incident (Month)") +
+  facet_wrap(~ VIC_AGE_GROUP, scale = 'free')
+```
+
+On the other hand, from the perspective of victim's age, the 2020 phenomenon also exists in all age groups except the 65+ group.
+
+```{r viz_race}
+df_viz_race <- nypd_dataset_selected %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month"), VIC_RACE) %>% summarize(count = n(), .groups = 'drop')
+ggplot(data = df_viz_race, aes(x = OCCUR_DATE_MONTH, y = count)) +
+  geom_line(color = "steelblue", size = 0.8) +
+  labs(title = "NYPD Shooting Incident (Victim's Race)",
+       y = "Count of Shooting Incident", x = "Date of the shooting incident (Month)") +
+  facet_wrap(~ VIC_RACE)
+```
+
+Then, we take a look at the victim's race. It is also obvious the black people is the majority of the victims (~71%) and the number of incident also increased a lot during 2020. Black Hispanic and White Hispanic incidents also increased during 2020, but they only account for around 25% of the total number of incidents.
+
+```{r viz_murder}
+df_victim <- nypd_dataset_selected %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month")) %>% summarize(victim = n(), .groups = 'drop')
+df_murder <- nypd_dataset_selected[nypd_dataset_selected$STATISTICAL_MURDER_FLAG == TRUE,] %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month")) %>% summarize(murder = n(), .groups = 'drop')
+df_viz_murder <- merge(df_victim, df_murder)
+df_viz_murder$rate <- df_viz_murder$murder / df_viz_murder$victim
+summary(df_viz_murder)
+df_viz_murder %>% ggplot() + 
+  geom_line(aes(x = OCCUR_DATE_MONTH, y = rate), color = "steelblue", size = 1) +
+  labs(title = "NYPD Shooting Incident",
+       y = "Date of the shooting incident (Month)", x = "Statistical Murder Rate")
+```
+
+Finally, we take a look at the statistical murder rate, its median and mean is about 20%. It seems that the 2020 phenomenon does not affect the statistical murder rate.
+
+
+## Simple Model
+```{r model}
+df_model <- nypd_dataset_selected[complete.cases(nypd_dataset_selected), ]
+df_model <- df_model %>% filter(PERP_AGE_GROUP != 'UNKNOWN' & PERP_RACE != "UNKNOWN" & VIC_AGE_GROUP != 'UNKNOWN' & VIC_RACE != "UNKNOWN")
+model <- glm(STATISTICAL_MURDER_FLAG ~ BORO + PERP_AGE_GROUP + PERP_SEX + PERP_RACE + VIC_AGE_GROUP + VIC_SEX + VIC_RACE, data = df_model, family = 'binomial')
+summary(model)
+df_model_pred <- df_model %>% mutate(pred = predict(model, type="response"))
+df_model_pred$result <- ifelse(df_model_pred$pred >= 0.25, TRUE, FALSE)
+df_model_result <- df_model_pred[df_model_pred$result == TRUE,] %>% group_by(OCCUR_DATE_MONTH = floor_date(OCCUR_DATE, "1 month")) %>% summarize(predict_murder = n(), .groups = 'drop')
+df_model_viz <- merge(df_murder, df_model_result)
+df_model_viz %>% ggplot() + 
+  geom_line(aes(x = OCCUR_DATE_MONTH, y = murder, colour = "Real"), size = 1) +
+  geom_line(aes(x = OCCUR_DATE_MONTH, y = predict_murder, colour = "Prediction"), size = 1) +
+  labs(title = "NYPD Shooting Incident",
+       y = "Statistical Murder Rate", x = "Date of the shooting incident (Month)") +
+  scale_color_manual(name = "Statistical Murder Rate", values = c("Real" = "steelblue", "Prediction" = "red"))
+```
+
+To perform a simple logistic regression model of the statistical murder flag, we can first tidy the data further by dropping the missing data and the unknown data, and then we take the borough, characteristics of perpetrators and victims into the model. From the model summary above, we can find that both the ages of perpetrators and victims are significant which means age is a possible principle component of determining the statistical murder flag.
+
+## Conclusion
+From the data above, it is obvious that the number of incident increased a lot during 2020. The reason behind that may be COVID-19 pandemic which causes social instability. However, we can see that the statistical murder rate kept the same during 2020, and from the logistic regression model, we can see that age is a possible principle component of determining the statistical murder flag.
+
+## Bias
+If we take a glance of the victims' race, we know that the majority is black people, and then if we take a look at the perpetrators' race, we may believe that the majority is also black people. However, about 35% of the perpetrators' race data is missing, so it is not rational to have this conclusion, and this may be a bias from the NYPD Shooting Incident Data. Furthermore, we dropped many missing and unknown perpetrator data when creating the logistic regression model, so this may affect the accuracy of the model.
